@@ -1,0 +1,59 @@
+# Runs after the Vrixel SDLC deploys a commit: checks the deployed MCP server at every stage (up,
+# auth enforced, metadata published; with SMOKE_TOKEN, tools listed and annotated). Results are
+# posted on the deployed commit as "integration / report", "e2e / report" and "smoke / report".
+# SMOKE_TOKEN is an environment secret: a client-credentials token with the read scope.
+name: post-deploy
+
+on:
+  repository_dispatch:
+    types: [vrixel-deployed]
+  workflow_dispatch:
+    inputs:
+      stage: { description: "dev, staging or production", required: true, type: choice, options: [dev, staging, production] }
+      base_url: { description: "URL of the deployed MCP server (without /mcp)", required: true }
+      sha: { description: "Deployed commit", required: true }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-deploy-${{ github.event.client_payload.stage || inputs.stage }}-${{ github.event.client_payload.sha || inputs.sha }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify ${{ github.event.client_payload.stage || inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ github.event.client_payload.stage || inputs.stage }}
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      STAGE: ${{ github.event.client_payload.stage || inputs.stage }}
+      BASE_URL: ${{ github.event.client_payload.base_url || inputs.base_url }}
+      REPORT_SHA: ${{ github.event.client_payload.sha || inputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REPORT_SHA }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Run the stage's suite
+        id: run
+        env:
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+        run: |
+          case "$STAGE" in
+            dev) echo "suite=integration" >> "$GITHUB_OUTPUT" ;;
+            staging) echo "suite=e2e" >> "$GITHUB_OUTPUT" ;;
+            production) echo "suite=smoke" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown stage $STAGE" >&2; exit 2 ;;
+          esac
+          uv run python -m deployed.smoke --base-url "$BASE_URL" --junit reports/deployed-smoke.xml
+      - name: Report results
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/report.py --context "${{ steps.run.outputs.suite }} / report" --junit 'reports/deployed-*.xml'
