@@ -9,6 +9,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from . import flags
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -16,6 +17,7 @@ from .settings import Settings
 
 def create_app(settings: Settings | None = None, verifier: Any = None, store: Any = None) -> Any:
     settings = settings or Settings()
+    flags.configure(settings)
     verifier = verifier or JwtVerifier(
         issuer=settings.oidc_issuer, jwks_url=settings.oidc_jwks_url, audience=settings.resource_url
     )

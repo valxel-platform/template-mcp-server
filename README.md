@@ -19,6 +19,7 @@ Vrixel agent template depends on them.
 | **Helpful errors.** Errors say what to do next and never echo PHI | The model can correct itself ("Use find_patient to get a patient id"). | `server.py` |
 | **Audited.** One JSON record per call: caller, client, tool, record ids, outcome | Who did what, without logging argument values that may hold PHI. | `security.py` |
 | **Rate-limited.** A token bucket per caller | One runaway agent can't starve the others. | `security.py` |
+| **Flagged.** A feature's new behavior checks its flag with `flags.enabled("<key>")`; a new tool answers that it isn't available while the flag is off | The SDLC tool creates each feature's flag, off in production until release; on-call can turn it off. | `flags.py` |
 
 ## Auth
 
@@ -47,6 +48,9 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 | `MCP_READ_SCOPE`, `MCP_WRITE_SCOPE` | `care:read`, `care:write` | |
 | `MCP_RATE_PER_MINUTE`, `MCP_RATE_BURST` | `120`, `30` | Per caller |
 | `MCP_ALLOWED_HOSTS` | `[]` | Host headers to accept (DNS rebinding protection); set in production |
+| `MCP_FLAGS_URL` | | The product's Flipt, read through OpenFeature (OFREP); unset, every feature flag reads as off |
+| `MCP_FLAGS_ENVIRONMENT`, `MCP_FLAGS_NAMESPACE` | | Flipt environment (e.g. `production`) and the product's namespace (e.g. `emr`) |
+| `MCP_FLAGS_TOKEN` | | A Flipt client token, if the product's Flipt requires one |
 
 The server is stateless (`stateless_http`), so any replica can serve any request. Keep it that
 way: put state in the store, not in sessions.

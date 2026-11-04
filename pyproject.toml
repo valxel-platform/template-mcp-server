@@ -9,6 +9,8 @@ dependencies = [
   "uvicorn[standard]>=0.54,<1",
   "pydantic>=2.14,<3",
   "pydantic-settings>=2.16,<3",
+  "openfeature-sdk>=0.10,<1",
+  "openfeature-provider-ofrep>=0.3,<1",
   "pyjwt[crypto]>=2.15.1,<3",
 ]
 
