@@ -17,7 +17,8 @@ Vrixel agent template depends on them.
 | **Typed, minimal results.** Pydantic output models (structured output) with ids and what the next step needs | PHI minimization: `find_patient` returns the id and a display name, never the MRN or phone. | `server.py` |
 | **Validated input.** Lengths, patterns and enums in the signature | The model sees the constraints in the schema; bad input is refused before your code runs. | `server.py` |
 | **Helpful errors.** Errors say what to do next and never echo PHI | The model can correct itself ("Use find_patient to get a patient id"). | `server.py` |
-| **Audited.** One JSON record per call: caller, client, tool, record ids, outcome | Who did what, without logging argument values that may hold PHI. | `security.py` |
+| **Audited.** One audit record per call (CloudEvents, `vrixel.audit.v1`) on the product's Kafka audit topic: caller, client, tool, record ids from the arguments and the result, outcome, trace id. If the record can't be published the call returns no data | Who saw and changed which records, without argument values that may hold PHI. The platform's audit sink keeps the topic in an append-only, hash-chained table and archives it to object storage. | `security.py`, `audit.py` |
+| **Traced.** OpenTelemetry: each request joins the caller's trace (`traceparent`); logs are JSON with `trace.id` | One request can be followed from the web app through agents to this server. | `telemetry.py` |
 | **Rate-limited.** A token bucket per caller | One runaway agent can't starve the others. | `security.py` |
 | **Flagged.** A feature's new behavior checks its flag with `flags.enabled("<key>")`; a new tool answers that it isn't available while the flag is off | The SDLC tool creates each feature's flag, off in production until release; on-call can turn it off. | `flags.py` |
 
@@ -51,6 +52,12 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 | `MCP_FLAGS_URL` | | The product's Flipt, read through OpenFeature (OFREP); unset, every feature flag reads as off |
 | `MCP_FLAGS_ENVIRONMENT`, `MCP_FLAGS_NAMESPACE` | | Flipt environment (e.g. `production`) and the product's namespace (e.g. `emr`) |
 | `MCP_FLAGS_TOKEN` | | A Flipt client token, if the product's Flipt requires one |
+| `MCP_PRODUCT`, `MCP_ENVIRONMENT`, `MCP_DATA_CLASS` | | Stamped on every audit record (`data_class`: `general`, `phi` or `payments`) |
+| `MCP_AUDIT_SINK` | `log` | `kafka` in deployed environments; `log` writes JSON lines locally |
+| `MCP_AUDIT_KAFKA_BOOTSTRAP`, `MCP_AUDIT_TOPIC` | `audit.v1` | The product's Kafka and its audit topic |
+| `MCP_AUDIT_KAFKA_CONFIG` | `{}` | JSON of extra client settings, e.g. `{"security.protocol": "SASL_SSL", "sasl.mechanism": "SCRAM-SHA-512", ...}` |
+| `MCP_AUDIT_REQUIRED` | `true` | A call whose audit record isn't acknowledged by Kafka fails |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | | Standard OpenTelemetry settings; point the endpoint at the data plane's collector |
 
 The server is stateless (`stateless_http`), so any replica can serve any request. Keep it that
 way: put state in the store, not in sessions.

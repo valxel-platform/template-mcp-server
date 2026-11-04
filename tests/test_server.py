@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 
 import httpx
 import pytest
@@ -99,17 +98,42 @@ def test_rate_limit_per_caller(live: Live) -> None:
     assert not live.call("writer", "list_open_tasks", {"patient_id": "p-102"}).is_error
 
 
-def test_every_call_is_audited_without_phi(live: Live, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger="audit")
+def test_every_call_is_audited_without_phi(live: Live) -> None:
     live.call("reader", "find_patient", {"name": "Ana Lopez", "date_of_birth": "1984-03-02"})
     live.call("reader", "create_task", {"patient_id": "p-102", "title": "Echo"})
-    records = [json.loads(r.message) for r in caplog.records if r.name == "audit"]
-    assert [(r["tool"], r["subject"], r["outcome"]) for r in records] == [
-        ("find_patient", "nurse-7", "ok"),
-        ("create_task", "nurse-7", "refused"),
+    live.call("writer", "create_task", {"patient_id": "p-102", "title": "Echo", "idempotency_key": "a"})
+    live.call("writer", "list_open_tasks", {"patient_id": "p-102"})
+    data = [e["data"] for e in live.audit.events]
+    assert [(d["action"], d["actor"]["id"], d["outcome"]) for d in data] == [
+        ("tool.find_patient", "nurse-7", "success"),
+        ("tool.create_task", "nurse-7", "denied"),
+        ("tool.create_task", "intake-agent", "success"),
+        ("tool.list_open_tasks", "intake-agent", "success"),
     ]
-    assert records[1]["records"] == {"patient_id": "p-102"}
-    assert "Ana Lopez" not in caplog.text and "1984-03-02" not in caplog.text
+    # The patient a search found is audited by id, from the result.
+    assert data[0]["resource"] == {"type": "patient", "ids": ["p-102"]}
+    assert data[1]["reason"] == "This tool needs the care:write scope."
+    task = data[2]["details"]["records"]["task"]  # the new task's id, from the result
+    assert data[3]["details"]["records"] == {"patient": ["p-102"], "task": task}  # the tasks that were read
+    e = live.audit.events[0]
+    assert e["type"] == "vrixel.audit.v1" and e["source"] == "emr/care" and e["subject"] == "patient/p-102"
+    assert data[0]["data_class"] == "phi" and data[0]["trace_id"]  # links to the request's trace
+    assert "Ana Lopez" not in json.dumps(live.audit.events) and "1984-03-02" not in json.dumps(
+        live.audit.events
+    )
+
+
+def test_a_call_that_cant_be_audited_returns_nothing(live: Live) -> None:
+    live.audit.fail = True
+    r = live.call("reader", "find_patient", {"name": "Ana Lopez", "date_of_birth": "1984-03-02"})
+    assert r.is_error and "audit trail" in r.content[0].text and "p-102" not in str(r.content)
+    r = live.call("writer", "create_task", {"patient_id": "p-102", "title": "Echo", "idempotency_key": "k1"})
+    assert r.is_error and "same idempotency_key" in r.content[0].text
+    live.audit.fail = False
+    again = live.call(
+        "writer", "create_task", {"patient_id": "p-102", "title": "Echo", "idempotency_key": "k1"}
+    )
+    assert not again.is_error and live.audit.events[-1]["data"]["action"] == "tool.create_task"
 
 
 def test_deployed_smoke_check(live: Live, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
