@@ -1,16 +1,18 @@
 """Who may call which tool, how often, and the audit trail.
 
 Every tool declares the scope it needs with @guarded. The decorator checks the caller's OAuth
-token, applies the caller's rate limit and writes one audit record per call: who, which tool,
-which records, the outcome. Argument values are not logged (they may hold PHI); record ids are.
+token, applies the caller's rate limit and publishes one audit record per call (audit.py): who,
+which tool, which records (from the arguments and the result), the outcome. Argument values are
+never recorded (they may hold PHI); record ids are.
+
+If the record can't be published the call fails: a read returns no data, and a write asks the
+caller to retry with the same idempotency key (which returns the first result and records again).
 """
 
 from __future__ import annotations
 
 import functools
 import inspect
-import json
-import logging
 import threading
 import time
 from collections.abc import Callable
@@ -21,12 +23,30 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver.exceptions import ToolError
 
-audit_log = logging.getLogger("audit")
+from .audit import Actor, Auditor, AuditUnavailable
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
-# Arguments whose values identify records rather than describe people: safe to audit.
-RECORD_ID_ARGS = {"patient_id", "task_id"}
+# Arguments and result fields whose values identify records rather than describe people: safe
+# to audit. Maps the field to the record type.
+RECORD_IDS = {"patient_id": "patient", "task_id": "task"}
+
+
+def _record_ids(values: dict[str, Any], result: Any) -> dict[str, set[str]]:
+    found: dict[str, set[str]] = {}
+
+    def take(field: str, value: Any) -> None:
+        if field in RECORD_IDS and value:
+            found.setdefault(RECORD_IDS[field], set()).add(str(value))
+
+    for k, v in values.items():
+        take(k, v)
+    items = getattr(result, "tasks", None) or ([result] if result is not None else [])
+    for item in items:
+        for k in RECORD_IDS:
+            take(k, getattr(item, k, None))
+    return found
 
 
 class JwtVerifier:
@@ -91,39 +111,54 @@ def caller() -> AccessToken:
     return token
 
 
-def guarded(scope: str, limiter: RateLimiter) -> Callable[[Callable[P, R]], Callable[P, R]]:
+def guarded(scope: str, limiter: RateLimiter, auditor: Auditor) -> Callable[[Callable[P, R]], Callable[P, R]]:
     def wrap(fn: Callable[P, R]) -> Callable[P, R]:
         sig = inspect.signature(fn)
+        writes = scope.endswith(":write")
 
         @functools.wraps(fn)
         def inner(*args: P.args, **kwargs: P.kwargs) -> R:
             token = caller()
             who = token.subject or token.client_id
+            actor = Actor(
+                id=who, type="service" if who == token.client_id else "user", client=token.client_id
+            )
             bound = sig.bind_partial(*args, **kwargs)
-            record: dict[str, Any] = {
-                "at": time.time(),
-                "tool": fn.__name__,
-                "subject": who,
-                "client_id": token.client_id,
-                "records": {k: v for k, v in bound.arguments.items() if k in RECORD_ID_ARGS},
-                "args": sorted(bound.arguments),
-            }
+            outcome, reason, result = "failure", "", None
             try:
                 if scope not in token.scopes:
                     raise ToolError(f"This tool needs the {scope} scope.")
                 if not limiter.allow(who):
                     raise ToolError("Rate limit reached; try again shortly.")
                 result = fn(*args, **kwargs)
-                record["outcome"] = "ok"
+                outcome = "success"
                 return result
             except ToolError as exc:
-                record["outcome"], record["error"] = "refused", str(exc)
+                outcome, reason = "denied", str(exc)
                 raise
             except Exception as exc:
-                record["outcome"], record["error"] = "error", type(exc).__name__
+                reason = type(exc).__name__
                 raise
             finally:
-                audit_log.info(json.dumps(record, default=str))
+                ids = _record_ids(dict(bound.arguments), result)
+                rtype = next(iter(sorted(ids)), "")
+                try:
+                    auditor.record(
+                        f"tool.{fn.__name__}",
+                        actor=actor,
+                        resource=(rtype, ids.get(rtype, ())),
+                        outcome=outcome,  # type: ignore[arg-type]
+                        reason=reason,
+                        details={
+                            "records": {k: sorted(v) for k, v in ids.items()},
+                            "args": sorted(bound.arguments),
+                        },
+                    )
+                except AuditUnavailable as exc:
+                    raise ToolError(
+                        "This call couldn't be recorded in the audit trail, so its result is withheld."
+                        + (" Retry with the same idempotency_key." if writes else " Try again shortly.")
+                    ) from exc
 
         return inner
 

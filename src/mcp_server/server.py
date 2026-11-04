@@ -20,6 +20,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .audit import Auditor, make_sink
 from .security import RateLimiter, caller, guarded
 from .settings import Settings
 from .store import Conflict, NotFound, Store
@@ -61,10 +62,35 @@ def _task(t: object) -> TaskOut:
     return TaskOut.model_validate(t, from_attributes=True)
 
 
-def build_server(settings: Settings, *, verifier: TokenVerifier, store: Store | None = None) -> MCPServer:
+def make_auditor(settings: Settings) -> Auditor:
+    sink = make_sink(
+        settings.audit_sink,
+        bootstrap=settings.audit_kafka_bootstrap,
+        topic=settings.audit_topic,
+        config=dict(settings.audit_kafka_config),
+    )
+    return Auditor(
+        sink,
+        service=settings.name,
+        product=settings.product,
+        environment=settings.environment,
+        data_class=settings.data_class,
+        required=settings.audit_required,
+    )
+
+
+def build_server(
+    settings: Settings,
+    *,
+    verifier: TokenVerifier,
+    store: Store | None = None,
+    auditor: Auditor | None = None,
+) -> MCPServer:
     store = store or Store.seeded()
+    auditor = auditor or make_auditor(settings)
     limiter = RateLimiter(settings.rate_per_minute, settings.rate_burst)
-    read, write = guarded(settings.read_scope, limiter), guarded(settings.write_scope, limiter)
+    read = guarded(settings.read_scope, limiter, auditor)
+    write = guarded(settings.write_scope, limiter, auditor)
     server = MCPServer(
         settings.name,
         instructions="Care-team data: find patients and manage their tasks.",
