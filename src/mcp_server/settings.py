@@ -21,5 +21,10 @@ class Settings(BaseSettings):
     # Per caller: calls per minute, and burst.
     rate_per_minute: int = 120
     rate_burst: int = 30
+    # Feature flags: the product's Flipt over OFREP. Unset, every flag reads as its default (off).
+    flags_url: str = ""
+    flags_environment: str = ""  # Flipt environment, e.g. production (header x-flipt-environment)
+    flags_namespace: str = ""  # the product's Flipt namespace, e.g. emr
+    flags_token: str = ""  # a Flipt client token, if the product's Flipt requires authentication
     # Hostnames clients may use (DNS rebinding protection); empty allows any, for local use.
     allowed_hosts: list[str] = []

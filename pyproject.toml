@@ -10,6 +10,8 @@ dependencies = [
   "pydantic>=2.14,<3",
   "pydantic-settings>=2.16,<3",
   "pyjwt[crypto]>=2.15,<3",
+  "openfeature-sdk>=0.10,<1",
+  "openfeature-provider-ofrep>=0.3,<1",
 ]
 
 [project.scripts]
