@@ -62,6 +62,16 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 The server is stateless (`stateless_http`), so any replica can serve any request. Keep it that
 way: put state in the store, not in sessions.
 
+## Errors and traces
+
+Every response carries a W3C `traceresponse` header with its trace id (`errors.py`), which the web
+and mobile apps put on the errors they report, so the SDLC tool sees a failure people hit and an
+error here as one incident. With `SENTRY_DSN` set, unhandled exceptions and `ERROR` logs go to
+Sentry, grouped into issues, with the exception type, stack, endpoint path and a `trace_id` tag
+only: never exception messages, formatted messages, local variables, queries, headers, bodies,
+users or breadcrumbs. Also `ENVIRONMENT` and `SENTRY_RELEASE`. Unset, Sentry is off; logs, traces
+and metrics stay in OpenChoreo. For PHI products use a Sentry plan under a BAA, or self-hosted Sentry.
+
 ## Delivery
 
 CI (`ci.yml`) runs `unit` (lint, format, types, tests with coverage), dependency review and an

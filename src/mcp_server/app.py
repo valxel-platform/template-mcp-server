@@ -8,7 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import flags, telemetry
+from . import errors, flags, telemetry
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -19,6 +19,7 @@ def create_app(
 ) -> Any:
     settings = settings or Settings()
     telemetry.setup(settings.name)
+    errors.start_errors()
     flags.configure(settings)
     verifier = verifier or JwtVerifier(
         issuer=settings.oidc_issuer, jwks_url=settings.oidc_jwks_url, audience=settings.resource_url
@@ -36,10 +37,11 @@ def create_app(
     app = server.streamable_http_app(
         stateless_http=True, json_response=True, transport_security=security, host=settings.host
     )
-    # Incoming requests join the caller's trace (W3C traceparent); /healthz is not traced.
+    # Incoming requests join the caller's trace (W3C traceparent); /healthz is not traced. Each
+    # response names its trace (traceresponse), set inside the span.
     from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 
-    return OpenTelemetryMiddleware(app, excluded_urls="healthz")
+    return OpenTelemetryMiddleware(errors.TraceResponseMiddleware(app), excluded_urls="healthz")
 
 
 def main() -> None:
