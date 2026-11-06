@@ -68,3 +68,5 @@ CI (`ci.yml`) runs `unit` (lint, format, types, tests with coverage), dependency
 image build; CodeQL comes from the repo's default setup. These are the required checks the
 Vrixel SDLC sets on repos with the `mcp-server` role. After each deployment the SDLC sends
 `vrixel-deployed`, which runs `post-deploy.yml` (`deployed/smoke.py`) against the new release.
+
+[![M8ven Score](https://m8ven.ai/badge/mcp/vrixel-tools-template-mcp-server-14a98a?v=3128e991519e9f83b743ab7fb727b7ef)](https://m8ven.ai/mcp/vrixel-tools-template-mcp-server-14a98a?s=readme)
