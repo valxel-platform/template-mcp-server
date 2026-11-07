@@ -8,7 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import errors, flags, telemetry
+from . import cohorts, errors, flags, telemetry
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -41,7 +41,11 @@ def create_app(
     # response names its trace (traceresponse), set inside the span.
     from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 
-    return OpenTelemetryMiddleware(errors.TraceResponseMiddleware(app), excluded_urls="healthz")
+    # Requests per flag, on and off, for the SDLC tool's gradual releases (logged once a minute).
+    cohorts.start_reporting()
+    return OpenTelemetryMiddleware(
+        errors.TraceResponseMiddleware(cohorts.CohortMiddleware(app)), excluded_urls="healthz"
+    )
 
 
 def main() -> None:
