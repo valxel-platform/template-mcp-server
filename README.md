@@ -47,15 +47,17 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 | `MCP_RESOURCE_URL` | `http://localhost:8080/mcp` | This server's public URL, the token audience |
 | `MCP_OIDC_ISSUER`, `MCP_OIDC_JWKS_URL` | | Required |
 | `MCP_READ_SCOPE`, `MCP_WRITE_SCOPE` | `care:read`, `care:write` | |
-| `MCP_RATE_PER_MINUTE`, `MCP_RATE_BURST` | `120`, `30` | Per caller |
+| `MCP_TENANT_CLAIM` | `organization` | The token claim naming the caller's tenants. Every tool sees only those tenants' records (another tenant's record reads as not found), and a token without the claim sees nothing. Empty for a single-tenant product. The deployed smoke check's identity needs an organization too |
+| `MCP_RATE_PER_MINUTE`, `MCP_RATE_BURST` | `120`, `30` | Per caller, per replica (limit across replicas at the gateway) |
 | `MCP_ALLOWED_HOSTS` | `[]` | Host headers to accept (DNS rebinding protection); set in production |
 | `MCP_FLAGS_URL` | | The product's Flipt, read through OpenFeature (OFREP); unset, every feature flag reads as off |
 | `MCP_FLAGS_ENVIRONMENT`, `MCP_FLAGS_NAMESPACE` | | Flipt environment (e.g. `production`) and the product's namespace (e.g. `emr`) |
 | `MCP_FLAGS_TOKEN` | | A Flipt client token, if the product's Flipt requires one |
+| `MCP_FLAGS_TIMEOUT_S`, `MCP_FLAGS_CACHE_S` | `0.25`, `30` | A flag call waits at most this long; each answer (per flag, caller and attributes) is reused this long |
 | `MCP_PRODUCT`, `MCP_ENVIRONMENT`, `MCP_DATA_CLASS` | | Stamped on every audit record (`data_class`: `general`, `phi` or `payments`) |
 | `MCP_AUDIT_SINK` | `log` | `kafka` in deployed environments; `log` writes JSON lines locally |
 | `MCP_AUDIT_KAFKA_BOOTSTRAP`, `MCP_AUDIT_TOPIC` | `audit.v1` | The product's Kafka and its audit topic |
-| `MCP_AUDIT_KAFKA_CONFIG` | `{}` | JSON of extra client settings, e.g. `{"security.protocol": "SASL_SSL", "sasl.mechanism": "SCRAM-SHA-512", ...}` |
+| `MCP_AUDIT_KAFKA_CONFIG` | `{}` | JSON of extra client settings, e.g. `{"security.protocol": "SASL_SSL", "sasl.mechanism": "SCRAM-SHA-512", ...}`. PHI and payments products must use `SSL` or `SASL_SSL`, or the server refuses to start |
 | `MCP_AUDIT_REQUIRED` | `true` | A call whose audit record isn't acknowledged by Kafka fails |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | | Standard OpenTelemetry settings; point the endpoint at the data plane's collector |
 

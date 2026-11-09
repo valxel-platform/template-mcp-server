@@ -21,7 +21,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from .audit import Auditor, make_sink
-from .security import RateLimiter, caller, guarded
+from .security import RateLimiter, caller, guarded, tenants
 from .settings import Settings
 from .store import Conflict, NotFound, Store
 
@@ -68,6 +68,7 @@ def make_auditor(settings: Settings) -> Auditor:
         bootstrap=settings.audit_kafka_bootstrap,
         topic=settings.audit_topic,
         config=dict(settings.audit_kafka_config),
+        data_class=settings.data_class,
     )
     return Auditor(
         sink,
@@ -107,6 +108,15 @@ def build_server(
         t = caller()
         return t.subject or t.client_id
 
+    def mine() -> set[str] | None:
+        """The caller's tenants; every tool reads and writes only their records."""
+        if not settings.tenant_claim:
+            return None  # a single-tenant product
+        found = set(tenants(getattr(caller(), "claims", None) or {}, settings.tenant_claim))
+        if not found:
+            raise ToolError("Your token names no organization, so no records are available to you.")
+        return found
+
     @server.tool(annotations=READ)
     @read
     def find_patient(
@@ -114,7 +124,7 @@ def build_server(
         date_of_birth: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="YYYY-MM-DD"),
     ) -> PatientMatch:
         """Find a patient by full name and date of birth. Returns the patient id to use with other tools."""
-        p = store.find_patient(name, date_of_birth)
+        p = store.find_patient(name, date_of_birth, mine())
         return (
             PatientMatch(found=False)
             if p is None
@@ -126,7 +136,7 @@ def build_server(
     def list_open_tasks(patient_id: str) -> TaskList:
         """Open care-team tasks for a patient."""
         try:
-            return TaskList(tasks=[_task(t) for t in store.open_tasks(patient_id)])
+            return TaskList(tasks=[_task(t) for t in store.open_tasks(patient_id, mine())])
         except NotFound as exc:
             raise ToolError(f"{exc} Use find_patient to get a patient id.") from exc
 
@@ -140,7 +150,7 @@ def build_server(
     ) -> TaskOut:
         """Create a care-team task for a patient. Changes data."""
         try:
-            return _task(store.create_task(who(), idempotency_key, patient_id, title, priority))
+            return _task(store.create_task(who(), idempotency_key, patient_id, title, priority, mine()))
         except NotFound as exc:
             raise ToolError(f"{exc} Use find_patient to get a patient id.") from exc
         except Conflict as exc:
@@ -151,7 +161,7 @@ def build_server(
     def complete_task(task_id: str, idempotency_key: str = IdempotencyKey) -> TaskOut:
         """Mark a task done. Changes data."""
         try:
-            return _task(store.complete_task(who(), idempotency_key, task_id))
+            return _task(store.complete_task(who(), idempotency_key, task_id, mine()))
         except (NotFound, Conflict) as exc:
             raise ToolError(str(exc)) from exc
 

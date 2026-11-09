@@ -17,11 +17,14 @@ from mcp_server.settings import Settings
 from mcp_server.store import Store
 
 RESOURCE = "http://127.0.0.1/mcp"
-TOKENS = {
-    "reader": ("nurse-7", ["care:read"]),
-    "writer": ("intake-agent", ["care:read", "care:write"]),
-    "writer-2": ("other-agent", ["care:read", "care:write"]),
-    "no-scopes": ("svc", []),
+NORTH = {"organization": {"north-clinic": {}}}
+TOKENS: dict[str, tuple[str, list[str], dict[str, Any]]] = {
+    "reader": ("nurse-7", ["care:read"], NORTH),
+    "writer": ("intake-agent", ["care:read", "care:write"], NORTH),
+    "writer-2": ("other-agent", ["care:read", "care:write"], NORTH),
+    "no-scopes": ("svc", [], NORTH),
+    "south": ("nurse-9", ["care:read", "care:write"], {"organization": ["south-clinic"]}),
+    "no-org": ("svc-2", ["care:read", "care:write"], {}),
 }
 
 
@@ -29,8 +32,10 @@ class FakeVerifier:
     async def verify_token(self, token: str) -> AccessToken | None:
         if token not in TOKENS:
             return None
-        sub, scopes = TOKENS[token]
-        return AccessToken(token=token, client_id=sub, scopes=scopes, subject=sub, resource=RESOURCE)
+        sub, scopes, claims = TOKENS[token]
+        return AccessToken(
+            token=token, client_id=sub, scopes=scopes, subject=sub, resource=RESOURCE, claims=claims
+        )
 
 
 class Live:
