@@ -75,8 +75,8 @@ def test_mcp_errors_count_as_failed_though_they_come_with_a_200(client):
     [line] = cohorts.drain()
     assert json.loads(line[len(cohorts.MARKER) :]) == {
         "flag": KEY,
-        "on": {"requests": 4, "errors": 3},
-        "off": {"requests": 1, "errors": 0},
+        "on": {"requests": 4, "errors": 3, "slow": 0},
+        "off": {"requests": 1, "errors": 0, "slow": 0},
     }
 
 
@@ -87,14 +87,14 @@ def test_reports_are_logged_and_outside_a_request_nothing_counts(caplog):
     token = cohorts.begin()
     cohorts.seen(KEY, False)
     cohorts.seen("not a key!", True)
-    cohorts.end(token, failed=True)
+    cohorts.end(token, failed=True, elapsed_ms=cohorts.SLOW_MS + 1)
     with caplog.at_level(logging.INFO, logger="mcp_server.cohorts"):
         cohorts.report()
     assert [r.getMessage() for r in caplog.records] == [
         cohorts.MARKER
         + ' {"flag":"'
         + KEY
-        + '","on":{"requests":0,"errors":0},"off":{"requests":1,"errors":1}}'
+        + '","on":{"requests":0,"errors":0,"slow":0},"off":{"requests":1,"errors":1,"slow":1}}'
     ]
     cohorts.start_reporting(period_s=3600)
     cohorts.start_reporting(period_s=3600)
