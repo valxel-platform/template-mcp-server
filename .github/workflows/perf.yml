@@ -1,0 +1,49 @@
+# Performance smoke test, on pull requests the Vrixel SDLC labels vrixel:perf-smoke or
+# vrixel:perf-full. perf/smoke.py loads the server's tools in-process (8 concurrent sessions for a
+# minute after a warm-up) on main's code and then on the PR's, on this runner; perf/compare.py
+# posts "perf-smoke / report": failed when the PR is more than 20% slower than main or misses the
+# budget (500 ms at the 95th percentile, 1 s at the 99th, under 1% errors).
+name: perf
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  perf-smoke:
+    name: perf-smoke
+    if: contains(github.event.pull_request.labels.*.name, 'vrixel:perf-smoke') || contains(github.event.pull_request.labels.*.name, 'vrixel:perf-full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: pr
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: main
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Load main's code, then the PR's, the same way
+        run: |
+          mkdir -p out
+          for v in main pr; do
+            (cd $v && uv sync --locked --quiet && uv run python ../pr/perf/smoke.py ../out/$v.json)
+          done
+      - name: Judge and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 pr/perf/compare.py --kind api --run out/pr.json --reference out/main.json --regression 20 --context "perf-smoke / report"

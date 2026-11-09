@@ -84,3 +84,13 @@ Vrixel SDLC sets on repos with the `mcp-server` role. After each deployment the 
 `vrixel-deployed`, which runs `post-deploy.yml` (`deployed/smoke.py`) against the new release.
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/vrixel-tools-template-mcp-server-14a98a?v=3128e991519e9f83b743ab7fb727b7ef)](https://m8ven.ai/mcp/vrixel-tools-template-mcp-server-14a98a?s=readme)
+
+## Performance tests
+
+When the Vrixel SDLC labels a pull request `vrixel:perf-smoke` (a tool, the store, security or the
+runtime changes; or the reviewer saw a performance risk), `perf.yml` loads the tools in-process
+with `perf/smoke.py` on main's code and the PR's, on one runner, and `perf/compare.py` posts
+`perf-smoke / report`: failed when the PR is more than 20% slower than main at the 95th or 99th
+percentile, its error rate rises, or it misses the budget (500 ms, 1 s, under 1% errors). Replace
+`CALLS` in `perf/smoke.py` with your tools' most common calls. An MCP server has no staging load
+test (it needs delegated tokens); production timings and the rollout's comparison watch it.
