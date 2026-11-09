@@ -143,3 +143,23 @@ def test_deployed_smoke_check(live: Live, tmp_path: object, monkeypatch: pytest.
     base = live.url.removesuffix("/mcp")
     assert main(["--base-url", base, "--junit", f"{tmp_path}/smoke.xml"]) == 0
     assert main(["--base-url", "http://127.0.0.1:9", "--junit", f"{tmp_path}/down.xml"]) == 1
+
+
+def test_callers_see_only_their_tenants_records(live: Live) -> None:
+    ana = {"name": "Ana Lopez", "date_of_birth": "1984-03-02"}
+    assert live.call("south", "find_patient", ana).structured_content["found"] is False
+    res = live.call("south", "list_open_tasks", {"patient_id": "p-102"})
+    assert res.is_error and "No patient p-102" in res.content[0].text  # not "not yours"
+    res = live.call("south", "create_task", {"patient_id": "p-102", "title": "Echo", "idempotency_key": "k"})
+    assert res.is_error and live.store.tasks == {}
+    task = live.call(
+        "writer", "create_task", {"patient_id": "p-102", "title": "Echo", "idempotency_key": "k"}
+    )
+    tid = task.structured_content["task_id"]
+    res = live.call("south", "complete_task", {"task_id": tid, "idempotency_key": "k2"})
+    assert res.is_error and live.store.tasks[tid].status == "open"
+
+
+def test_a_token_without_an_organization_sees_nothing(live: Live) -> None:
+    res = live.call("no-org", "find_patient", {"name": "Ana Lopez", "date_of_birth": "1984-03-02"})
+    assert res.is_error and "names no organization" in res.content[0].text

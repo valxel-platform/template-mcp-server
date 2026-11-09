@@ -65,3 +65,20 @@ def test_rate_limiter_refills() -> None:
     assert rl.allow("b")
     time.sleep(0.02)
     assert rl.allow("a")
+
+
+def test_the_rate_limiter_forgets_idle_callers() -> None:
+    from mcp_server.security import RateLimiter
+
+    limiter = RateLimiter(per_minute=60, burst=5)
+    limiter.MAX_CALLERS = 100
+    for n in range(250):
+        limiter.allow(f"caller-{n}")
+    assert len(limiter.buckets) <= 100
+
+
+def test_phi_audit_records_never_travel_in_plain_text() -> None:
+    from mcp_server.audit import make_sink
+
+    with pytest.raises(RuntimeError, match="must use TLS"):
+        make_sink("kafka", bootstrap="kafka:9092", topic="audit.v1", data_class="phi")

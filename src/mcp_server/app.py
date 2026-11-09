@@ -53,4 +53,6 @@ def main() -> None:
 
     settings = Settings()
     telemetry.setup_logging(settings.name)
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    # log_config=None: uvicorn's own and access logs go through the JSON logging set up above,
+    # like everything else (trace ids included), instead of uvicorn's plain-text format.
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)

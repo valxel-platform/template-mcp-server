@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     resource_url: str = "http://localhost:8080/mcp"
     oidc_issuer: str = ""
     oidc_jwks_url: str = ""
+    # The token claim naming the caller's tenants (Keycloak organizations). Every tool sees only
+    # those tenants' records. Empty: a single-tenant product, no limit.
+    tenant_claim: str = "organization"
     read_scope: str = "care:read"
     write_scope: str = "care:write"
     # Per caller: calls per minute, and burst.
@@ -35,5 +38,7 @@ class Settings(BaseSettings):
     flags_environment: str = ""  # Flipt environment, e.g. production (header x-flipt-environment)
     flags_namespace: str = ""  # the product's Flipt namespace, e.g. emr
     flags_token: str = ""  # a Flipt client token, if the product's Flipt requires authentication
+    flags_timeout_s: float = 0.25  # a slow Flipt never slows a call down by more than this
+    flags_cache_s: float = 30.0  # how long a flag's answer for a caller is reused
     # Hostnames clients may use (DNS rebinding protection); empty allows any, for local use.
     allowed_hosts: list[str] = []

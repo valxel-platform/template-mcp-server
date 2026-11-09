@@ -84,8 +84,24 @@ class JwtVerifier:
         return await anyio.to_thread.run_sync(self._verify, token)
 
 
+def tenants(claims: dict[str, Any], claim: str) -> list[str]:
+    """The caller's tenants from the token: a name, a list of names, or Keycloak's organization
+    claim (a map of organization alias to details)."""
+    raw = claims.get(claim)
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, dict):
+        return sorted(str(k) for k in raw)
+    return sorted(str(v) for v in raw)
+
+
 class RateLimiter:
-    """A token bucket per caller."""
+    """A token bucket per caller, per replica (the gateway limits across replicas). Callers idle
+    long enough to have a full bucket are forgotten, so memory stays bounded."""
+
+    MAX_CALLERS = 10_000
 
     def __init__(self, per_minute: int, burst: int) -> None:
         self.rate, self.burst = per_minute / 60.0, float(burst)
@@ -95,13 +111,21 @@ class RateLimiter:
     def allow(self, key: str) -> bool:
         now = time.monotonic()
         with self.lock:
-            tokens, last = self.buckets.get(key, (self.burst, now))
+            tokens, last = self.buckets.pop(key, (self.burst, now))
             tokens = min(self.burst, tokens + (now - last) * self.rate)
-            if tokens < 1:
-                self.buckets[key] = (tokens, now)
-                return False
-            self.buckets[key] = (tokens - 1, now)
-            return True
+            allowed = tokens >= 1
+            self.buckets[key] = (tokens - 1 if allowed else tokens, now)
+            if len(self.buckets) > self.MAX_CALLERS:
+                self._forget(now)
+            return allowed
+
+    def _forget(self, now: float) -> None:
+        full = self.burst / self.rate if self.rate else float("inf")  # seconds to refill
+        for k, (_, last) in list(self.buckets.items()):
+            if now - last >= full:
+                del self.buckets[k]
+        while len(self.buckets) > self.MAX_CALLERS:  # oldest first (insertion order)
+            del self.buckets[next(iter(self.buckets))]
 
 
 def caller() -> AccessToken:
