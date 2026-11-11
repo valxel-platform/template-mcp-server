@@ -8,7 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import cohorts, errors, flags, telemetry
+from . import cohorts, errors, events, flags, telemetry
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -43,6 +43,8 @@ def create_app(
 
     # Requests per flag, on and off, for the SDLC tool's gradual releases (logged once a minute).
     cohorts.start_reporting()
+    # Product events the feature goals count (events.record), summed once a minute for the SDLC tool.
+    events.start_reporting()
     return OpenTelemetryMiddleware(
         errors.TraceResponseMiddleware(cohorts.CohortMiddleware(app)), excluded_urls="healthz"
     )
