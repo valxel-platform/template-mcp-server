@@ -8,16 +8,14 @@ each. Record them where they happen:
     events.record("record_summarized")
     events.record("record_summarized", record_type="lab")  # categories only
 
-Each event goes two places, all counts:
+Each event goes three places, all counts:
 
+- the Prometheus counter `vrixel_events_total{event="record_summarized"}` on /metrics (usage.py's), which a
+  goal's metric can read (`sum(increase(vrixel_events_total{event="record_summarized"}[$window]))`);
 - a summary line once a minute, which the tool counts in staging to prove every event fires
   before release: `vrixel.events {"record_summarized":12}`;
 - the current request's flag cohorts (`cohorts.event`), so a gradual release can compare how
   often users with a feature on do it against users with it off.
-
-The MCP server exposes no /metrics, so there is no counter here: a goal read from Prometheus
-counts its events where the outcome happens (the service template's `ProductEvents`), and the
-tool's staging check and gradual-release comparison read these lines.
 
 Events carry counts and categories, never people: a name that isn't lowercase words, or an
 attribute that names or identifies a person (a name, contact details, an id), raises ValueError.
@@ -30,10 +28,13 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Iterator
+from typing import Any
 
 from . import cohorts
 
 MARKER = "vrixel.events"
+METRIC = "vrixel_events"
 log = logging.getLogger("mcp_server.events")
 NAME = re.compile(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)*")
 _ATTRIBUTE = re.compile(r"[a-z][a-z0-9_]*")
@@ -103,6 +104,7 @@ PERSON_IDS = (
 )
 _lock = threading.Lock()
 _counts: dict[str, int] = {}  # since the last summary line
+_totals: dict[tuple[str, tuple[tuple[str, str], ...]], int] = {}  # for /metrics, never reset
 _reporter: threading.Thread | None = None
 
 
@@ -139,6 +141,8 @@ def record(event: str, /, **attributes: str) -> None:
     check(event, attributes)
     with _lock:
         _counts[event] = _counts.get(event, 0) + 1
+        k = (event, tuple(sorted(attributes.items())))
+        _totals[k] = _totals.get(k, 0) + 1
     cohorts.event(event)
 
 
@@ -174,7 +178,36 @@ def start_reporting(period_s: float = 60.0) -> None:
     atexit.register(report)
 
 
+class Collector:
+    """The counter on /metrics: one sample per event and set of categories."""
+
+    def collect(self) -> Iterator[Any]:
+        from prometheus_client.core import Metric
+
+        m = Metric(METRIC, "Product events the feature goals count", "counter")
+        with _lock:
+            totals = dict(_totals)
+        for (event, attrs), n in sorted(totals.items()):
+            m.add_sample(f"{METRIC}_total", {"event": event, **dict(attrs)}, float(n))
+        yield m
+
+    def describe(self) -> list[Any]:
+        return []
+
+
+_registered: set[int] = set()
+
+
+def register(registry: Any) -> None:
+    """Expose the counter on a prometheus_client registry (the app's /metrics), once per registry."""
+    if id(registry) in _registered:
+        return
+    _registered.add(id(registry))
+    registry.register(Collector())
+
+
 def reset() -> None:
     """Tests: forget every count."""
     with _lock:
         _counts.clear()
+        _totals.clear()

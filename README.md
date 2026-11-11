@@ -19,8 +19,9 @@ Vrixel agent template depends on them.
 | **Helpful errors.** Errors say what to do next and never echo PHI | The model can correct itself ("Use find_patient to get a patient id"). | `server.py` |
 | **Audited.** One audit record per call (CloudEvents, `vrixel.audit.v1`) on the product's Kafka audit topic: caller, client, tool, record ids from the arguments and the result, outcome, trace id. If the record can't be published the call returns no data | Who saw and changed which records, without argument values that may hold PHI. The platform's audit sink keeps the topic in an append-only, hash-chained table and archives it to object storage. | `security.py`, `audit.py` |
 | **Traced.** OpenTelemetry: each request joins the caller's trace (`traceparent`); logs are JSON with `trace.id` | One request can be followed from the web app through agents to this server. | `telemetry.py` |
+| **Usage.** Every tool call is counted by tool, OAuth client, calling app and outcome: a JSON log line (`mcp.calls`), span attributes, and `mcp_tool_calls_total` / `mcp_tool_call_duration_seconds` on `/metrics`. Clients connecting are logged with their name, version and protocol version (`mcp.clients`). No person, arguments or results | Which clients call this server, which tools they use, how fast and how often they fail, and which client versions are still connecting: for operations and product decisions, kept apart from the audit trail and its stricter access. | `usage.py` |
 | **Rate-limited.** A token bucket per caller | One runaway agent can't starve the others. | `security.py` |
-| **Measured.** When the HLD names this server as the one that records a feature's goal event, the tool calls `events.record("record_summarized")` (categories as keyword arguments; anything that names or identifies a person raises) | The SDLC tool counts the `vrixel.events` line in staging to prove every event fires before G6, and compares users with a feature on against off from `"events"` on each side of `vrixel.flag_cohorts`. No /metrics here: a goal read from Prometheus counts its events in the service that owns the outcome. | `events.py`, `cohorts.py` |
+| **Measured.** When the HLD names this server as the one that records a feature's goal event, the tool calls `events.record("record_summarized")` (categories as keyword arguments; anything that names or identifies a person raises) | The SDLC tool counts the `vrixel.events` line in staging to prove every event fires before G6, and compares users with a feature on against off from `"events"` on each side of `vrixel.flag_cohorts`. The counter `vrixel_events_total` is on `/metrics` too. | `events.py`, `cohorts.py` |
 | **Flagged.** A feature's new behavior checks its flag with `flags.enabled("<key>")`; a new tool answers that it isn't available while the flag is off | The SDLC tool creates each feature's flag, off in production until release; on-call can turn it off. | `flags.py` |
 
 ## Auth
@@ -64,6 +65,38 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 
 The server is stateless (`stateless_http`), so any replica can serve any request. Keep it that
 way: put state in the store, not in sessions.
+
+## Who calls this server
+
+`usage.py` records every tool call with two names for the caller, neither of them a person:
+
+| Name | From | Example |
+| --- | --- | --- |
+| `client` | The OAuth client the token was issued to (`azp` or `client_id`) | `care-desk`, `claude-ai` |
+| `app` | The software, as it names itself: `_meta["io.modelcontextprotocol/clientInfo"]` on every request (protocol 2026-07-28 on), an older client's `initialize`, or else its User-Agent | `claude-code`, `cursor` |
+
+Per call there is one log line, for example:
+
+```json
+{"message": "tools/call create_task", "mcp.tool": "create_task", "mcp.client.id": "care-desk",
+ "mcp.client.app": "claude-code", "mcp.client.version": "2.1.4", "event.outcome": "success",
+ "event.duration_ms": 41.7, "trace.id": "..."}
+```
+
+The span carries `gen_ai.tool.name`, `mcp.client.id` and `mcp.client.app`, and `/metrics` (scraped
+inside the cluster; the gateway routes only `/mcp` outside) has:
+
+```
+mcp_tool_calls_total{tool, client, app, outcome}          # outcome: success, denied, failure
+mcp_tool_call_duration_seconds{tool, client, app}         # histogram
+```
+
+so "which clients call which tools, and how often do they fail?" is one PromQL query:
+`sum by (client, app, tool, outcome) (increase(mcp_tool_calls_total[1d]))`. Each
+`server/discover` or `initialize` is logged on `mcp.clients` with the client's name, version and
+protocol version, which shows who still connects with an old client. At most 100 OAuth clients and
+50 apps are named in the metrics; later ones count as `other`. Who did what to which records stays
+in the audit trail, which names the person (`sub`) and is read under stricter rules.
 
 ## Errors and traces
 
