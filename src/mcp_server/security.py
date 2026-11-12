@@ -1,8 +1,9 @@
 """Who may call which tool, how often, and the audit trail.
 
 Every tool declares the scope it needs with @guarded. The decorator checks the caller's OAuth
-token, applies the caller's rate limit and publishes one audit record per call (audit.py): who,
-which tool, which records (from the arguments and the result), the outcome. Argument values are
+token, applies the caller's rate limit, publishes one audit record per call (audit.py: who,
+which tool, which records, the outcome) and records its usage (usage.py: which client and app,
+which tool, how long, how it went; no person in it). Argument values are
 never recorded (they may hold PHI); record ids are.
 
 If the record can't be published the call fails: a read returns no data, and a write asks the
@@ -23,6 +24,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver.exceptions import ToolError
 
+from . import usage
 from .audit import Actor, Auditor, AuditUnavailable
 
 P = ParamSpec("P")
@@ -149,6 +151,7 @@ def guarded(scope: str, limiter: RateLimiter, auditor: Auditor) -> Callable[[Cal
             )
             bound = sig.bind_partial(*args, **kwargs)
             outcome, reason, result = "failure", "", None
+            started = time.monotonic()
             try:
                 if scope not in token.scopes:
                     raise ToolError(f"This tool needs the {scope} scope.")
@@ -164,6 +167,8 @@ def guarded(scope: str, limiter: RateLimiter, auditor: Auditor) -> Callable[[Cal
                 reason = type(exc).__name__
                 raise
             finally:
+                # Which client called which tool, how long it took and how it went (usage.py).
+                usage.record_call(fn.__name__, token.client_id, outcome, time.monotonic() - started)
                 ids = _record_ids(dict(bound.arguments), result)
                 rtype = next(iter(sorted(ids)), "")
                 try:
