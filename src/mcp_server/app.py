@@ -1,4 +1,4 @@
-"""Serves the MCP server over Streamable HTTP at /mcp, with /healthz for the platform."""
+"""Serves the MCP server over Streamable HTTP at /mcp, with /healthz and /metrics for the platform."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from typing import Any
 
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
-from . import cohorts, errors, flags, telemetry
+from . import cohorts, errors, events, flags, telemetry, usage
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -30,6 +30,15 @@ def create_app(
     async def healthz(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
 
+    # Prometheus scrapes the usage metrics (usage.py) and the product events counter (events.py)
+    # from inside the cluster; the gateway routes only /mcp to the outside.
+    events.register(usage.registry)
+
+    @server.custom_route("/metrics", methods=["GET"], include_in_schema=False)  # type: ignore[untyped-decorator]
+    async def metrics(request: Request) -> Response:
+        body, content_type = usage.metrics_body()
+        return Response(body, media_type=content_type)
+
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=bool(settings.allowed_hosts), allowed_hosts=settings.allowed_hosts
     )
@@ -43,8 +52,12 @@ def create_app(
 
     # Requests per flag, on and off, for the SDLC tool's gradual releases (logged once a minute).
     cohorts.start_reporting()
+    # Product events the feature goals count (events.record), summed once a minute for the SDLC tool.
+    events.start_reporting()
+    # Which app is calling (User-Agent), and the client each session's initialize names (usage.py).
     return OpenTelemetryMiddleware(
-        errors.TraceResponseMiddleware(cohorts.CohortMiddleware(app)), excluded_urls="healthz"
+        errors.TraceResponseMiddleware(cohorts.CohortMiddleware(usage.UsageMiddleware(app))),
+        excluded_urls="healthz,metrics",
     )
 
 
