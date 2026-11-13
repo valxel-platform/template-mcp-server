@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Post a test suite's results as a commit status the Vrixel SDLC reads.
+"""Post a test suite's results as a commit status the Valxel SDLC reads.
 
 The pipeline's quality policy matches suites by check name (unit*, contract*, integration*, e2e*,
 smoke*) and reads counts and coverage from the summary text, e.g.

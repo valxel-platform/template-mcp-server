@@ -1,4 +1,4 @@
-# Runs after the Vrixel SDLC deploys a commit: checks the deployed MCP server at every stage (up,
+# Runs after the Valxel SDLC deploys a commit: checks the deployed MCP server at every stage (up,
 # auth enforced, metadata published; with SMOKE_TOKEN, tools listed and annotated). Results are
 # posted on the deployed commit as "integration / report", "e2e / report" and "smoke / report".
 # SMOKE_TOKEN is an environment secret: a client-credentials token with the read scope.
@@ -6,7 +6,7 @@ name: post-deploy
 
 on:
   repository_dispatch:
-    types: [vrixel-deployed]
+    types: [valxel-deployed]
   workflow_dispatch:
     inputs:
       stage: { description: "dev, staging or production", required: true, type: choice, options: [dev, staging, production] }

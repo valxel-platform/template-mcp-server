@@ -1,7 +1,7 @@
 [project]
 name = "mcp-server"
 version = "0.1.0"
-description = "Vrixel MCP server template: product capabilities as MCP tools over Streamable HTTP, with OAuth scopes, idempotent writes, audit and PHI-minimal results."
+description = "Valxel MCP server template: product capabilities as MCP tools over Streamable HTTP, with OAuth scopes, idempotent writes, audit and PHI-minimal results."
 requires-python = ">=3.12"
 dependencies = [
   "mcp>=2.3,<3",
