@@ -1,5 +1,5 @@
-# Performance smoke test, on pull requests the Vrixel SDLC labels vrixel:perf-smoke or
-# vrixel:perf-full. perf/smoke.py loads the server's tools in-process (8 concurrent sessions for a
+# Performance smoke test, on pull requests the Valxel SDLC labels valxel:perf-smoke or
+# valxel:perf-full. perf/smoke.py loads the server's tools in-process (8 concurrent sessions for a
 # minute after a warm-up) on main's code and then on the PR's, on this runner; perf/compare.py
 # posts "perf-smoke / report": failed when the PR is more than 20% slower than main or misses the
 # budget (500 ms at the 95th percentile, 1 s at the 99th, under 1% errors).
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   perf-smoke:
     name: perf-smoke
-    if: contains(github.event.pull_request.labels.*.name, 'vrixel:perf-smoke') || contains(github.event.pull_request.labels.*.name, 'vrixel:perf-full')
+    if: contains(github.event.pull_request.labels.*.name, 'valxel:perf-smoke') || contains(github.event.pull_request.labels.*.name, 'valxel:perf-full')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

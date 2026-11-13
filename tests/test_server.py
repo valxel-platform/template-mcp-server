@@ -116,7 +116,7 @@ def test_every_call_is_audited_without_phi(live: Live) -> None:
     task = data[2]["details"]["records"]["task"]  # the new task's id, from the result
     assert data[3]["details"]["records"] == {"patient": ["p-102"], "task": task}  # the tasks that were read
     e = live.audit.events[0]
-    assert e["type"] == "vrixel.audit.v1" and e["source"] == "emr/care" and e["subject"] == "patient/p-102"
+    assert e["type"] == "valxel.audit.v1" and e["source"] == "emr/care" and e["subject"] == "patient/p-102"
     assert data[0]["data_class"] == "phi" and data[0]["trace_id"]  # links to the request's trace
     assert "Ana Lopez" not in json.dumps(live.audit.events) and "1984-03-02" not in json.dumps(
         live.audit.events
