@@ -1,0 +1,16 @@
+# Where this template implements each capability its role needs (agentic-sdlc config/template-contract.yaml).
+# valxel repos check reads this file; keep a path here when you move the code.
+audit: src/mcp_server/audit.py
+dependency-review: .github/workflows/ci.yml
+dependency-updates: .github/dependabot.yml
+error-reports: src/mcp_server/errors.py
+flag-cohorts: src/mcp_server/cohorts.py
+flags: src/mcp_server/flags.py
+image-scan: .github/workflows/ci.yml
+json-logs: src/mcp_server/telemetry.py
+post-deploy: .github/workflows/post-deploy.yml
+product-events: src/mcp_server/events.py
+security-policy: SECURITY.md
+security-scans: .github/workflows/security.yml
+supply-chain-pins: .github/workflows/supply-chain-pins.yml
+tracing: src/mcp_server/telemetry.py
