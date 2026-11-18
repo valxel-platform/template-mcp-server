@@ -1,0 +1,22 @@
+# The template conformance suite (.github/scripts/conformance.py, managed by the platform): the built
+# image does what every MCP server repo must. A tool is called with a token like an agent's.
+port: 8080
+audience: http://127.0.0.1:8080/mcp
+env:
+  MCP_RESOURCE_URL: http://127.0.0.1:8080/mcp
+  MCP_OIDC_ISSUER: "{issuer}"
+  MCP_OIDC_JWKS_URL: "{jwks}"
+  MCP_FLAGS_URL: "{ofrep}"
+  MCP_PRODUCT: conformance
+  MCP_ENVIRONMENT: ci
+  MCP_AUDIT_SINK: log
+steps:
+  - method: POST
+    path: /mcp
+    token: {scope: "care:read care:write", organization: {north-clinic: {}}}
+    headers: {accept: "application/json, text/event-stream"}
+    json: {jsonrpc: "2.0", id: 1, method: tools/call,
+           params: {name: find_patient, arguments: {name: "Ana Lopez", date_of_birth: "1984-03-02"}}}
+    contains: ['"found"']
+# No flag yet: the example tools evaluate none (a feature adds its own, flags.enabled).
+checks: [audit, tracing, events]
