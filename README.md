@@ -50,7 +50,8 @@ MCP_OIDC_ISSUER=... MCP_OIDC_JWKS_URL=... MCP_RESOURCE_URL=http://localhost:8080
 | `MCP_OIDC_ISSUER`, `MCP_OIDC_JWKS_URL` | | Required |
 | `MCP_READ_SCOPE`, `MCP_WRITE_SCOPE` | `care:read`, `care:write` | |
 | `MCP_TENANT_CLAIM` | `organization` | The token claim naming the caller's tenants. Every tool sees only those tenants' records (another tenant's record reads as not found), and a token without the claim sees nothing. Empty for a single-tenant product. The deployed smoke check's identity needs an organization too |
-| `MCP_RATE_PER_MINUTE`, `MCP_RATE_BURST` | `120`, `30` | Per caller, per replica (limit across replicas at the gateway) |
+| `MCP_RATE_PER_MINUTE`, `MCP_RATE_BURST` | `120`, `30` | Per caller: one bucket shared by every replica when `MCP_RATE_LIMIT_URL` is set, else per replica |
+| `MCP_RATE_LIMIT_URL` | | The product's Valkey (`redis-crossplane` resource): `rediss://:<password>@<host>:<port>`, from a secret. Required to be `rediss://` outside `local` and `ci`. If it can't be reached, each replica limits on its own until it can |
 | `MCP_ALLOWED_HOSTS` | `[]` | Host headers to accept (DNS rebinding protection); set in production |
 | `MCP_FLAGS_URL` | | The product's Flipt, read through OpenFeature (OFREP); unset, every feature flag reads as off |
 | `MCP_FLAGS_ENVIRONMENT`, `MCP_FLAGS_NAMESPACE` | | Flipt environment (e.g. `production`) and the product's namespace (e.g. `emr`) |

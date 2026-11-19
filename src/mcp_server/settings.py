@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     tenant_claim: str = "organization"
     read_scope: str = "care:read"
     write_scope: str = "care:write"
-    # Per caller: calls per minute, and burst.
+    # Per caller: calls per minute, and burst. Shared by every replica when rate_limit_url names the
+    # product's Valkey (rediss://, with its password, from a secret); per replica without it.
     rate_per_minute: int = 120
     rate_burst: int = 30
+    rate_limit_url: str = ""
     # Audit trail (audit.py): "kafka" in deployed environments, "log" locally.
     product: str = ""  # e.g. emr
     environment: str = ""  # e.g. production

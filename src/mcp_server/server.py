@@ -21,7 +21,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from .audit import Auditor, make_sink
-from .security import RateLimiter, caller, guarded, tenants
+from .security import caller, guarded, make_limiter, tenants
 from .settings import Settings
 from .store import Conflict, NotFound, Store
 
@@ -89,7 +89,7 @@ def build_server(
 ) -> MCPServer:
     store = store or Store.seeded()
     auditor = auditor or make_auditor(settings)
-    limiter = RateLimiter(settings.rate_per_minute, settings.rate_burst)
+    limiter = make_limiter(settings)
     read = guarded(settings.read_scope, limiter, auditor)
     write = guarded(settings.write_scope, limiter, auditor)
     server = MCPServer(
