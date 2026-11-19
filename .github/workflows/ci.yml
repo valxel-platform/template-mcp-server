@@ -26,6 +26,15 @@ jobs:
     permissions:
       contents: read
       statuses: write
+    # The rate limit shared by replicas (tests/test_shared_rate_limit.py): a Valkey like the product's.
+    services:
+      valkey:
+        image: valkey/valkey:8.1-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      MCP_TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

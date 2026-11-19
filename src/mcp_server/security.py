@@ -13,11 +13,13 @@ caller to retry with the same idempotency key (which returns the first result an
 from __future__ import annotations
 
 import functools
+import hashlib
 import inspect
+import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, Protocol, TypeVar
 
 import anyio
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -26,6 +28,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import usage
 from .audit import Actor, Auditor, AuditUnavailable
+
+log = logging.getLogger("mcp_server.security")
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -99,9 +103,14 @@ def tenants(claims: dict[str, Any], claim: str) -> list[str]:
     return sorted(str(v) for v in raw)
 
 
+class Limiter(Protocol):
+    def allow(self, key: str) -> bool: ...
+
+
 class RateLimiter:
-    """A token bucket per caller, per replica (the gateway limits across replicas). Callers idle
-    long enough to have a full bucket are forgotten, so memory stays bounded."""
+    """A token bucket per caller, in this replica: local work, and the fallback while the shared
+    store can't be reached. Callers idle long enough to have a full bucket are forgotten, so memory
+    stays bounded."""
 
     MAX_CALLERS = 10_000
 
@@ -130,6 +139,75 @@ class RateLimiter:
             del self.buckets[next(iter(self.buckets))]
 
 
+# One caller's bucket, read and updated in one step on the store (Valkey runs a script atomically),
+# on the store's clock so every replica agrees. KEYS[1] bucket; ARGV rate per ms, burst.
+_BUCKET = """
+local rate, burst = tonumber(ARGV[1]), tonumber(ARGV[2])
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local b = redis.call('HMGET', KEYS[1], 'tokens', 'at')
+local tokens, at = tonumber(b[1]) or burst, tonumber(b[2]) or now
+tokens = math.min(burst, tokens + math.max(0, now - at) * rate)
+local allowed = 0
+if tokens >= 1 then tokens = tokens - 1; allowed = 1 end
+redis.call('HSET', KEYS[1], 'tokens', tostring(tokens), 'at', tostring(now))
+redis.call('PEXPIRE', KEYS[1], math.ceil(burst / rate) + 1000)
+return allowed
+"""
+
+
+class SharedRateLimiter:
+    """A token bucket per caller shared by every replica, in the product's Valkey (or Redis): the
+    limit is the same however many replicas run. Buckets expire once full, so the store keeps
+    only active callers. If the store can't be reached, each replica falls back to its own bucket
+    (still limited, never unlimited) and says so in the log, at most once a minute."""
+
+    def __init__(
+        self,
+        url: str,
+        per_minute: int,
+        burst: int,
+        *,
+        prefix: str,
+        client: Any = None,
+        fallback: RateLimiter | None = None,
+    ) -> None:
+        import redis
+
+        self.rate_ms, self.burst = per_minute / 60_000.0, burst
+        self.prefix = prefix
+        self.client = client or redis.Redis.from_url(url, socket_timeout=0.25, socket_connect_timeout=0.25)
+        self.script = self.client.register_script(_BUCKET)
+        self.fallback = fallback or RateLimiter(per_minute, burst)
+        self.warned_at = 0.0
+
+    def allow(self, key: str) -> bool:
+        digest = hashlib.sha256(key.encode()).hexdigest()[:32]  # no caller ids in the store's keys
+        try:
+            return bool(self.script(keys=[f"{self.prefix}:{digest}"], args=[self.rate_ms, self.burst]))
+        except Exception as exc:  # noqa: BLE001 - the store down or slow: limit here instead
+            if time.monotonic() - self.warned_at > 60:
+                self.warned_at = time.monotonic()
+                log.warning("rate limit store unreachable (%s): limiting per replica", type(exc).__name__)
+            return self.fallback.allow(key)
+
+
+def make_limiter(settings: Any) -> Limiter:
+    """Shared in Valkey when MCP_RATE_LIMIT_URL is set (required outside local work and CI), else
+    per replica."""
+    url = settings.rate_limit_url
+    if not url:
+        return RateLimiter(settings.rate_per_minute, settings.rate_burst)
+    if settings.environment not in ("", "local", "ci") and not url.startswith("rediss://"):
+        raise RuntimeError("MCP_RATE_LIMIT_URL must be rediss:// (TLS) in deployed environments")
+    return SharedRateLimiter(
+        url,
+        settings.rate_per_minute,
+        settings.rate_burst,
+        prefix=f"mcp-rate:{settings.product or 'product'}:{settings.name}",
+    )
+
+
 def caller() -> AccessToken:
     token = get_access_token()
     if token is None:
@@ -137,7 +215,7 @@ def caller() -> AccessToken:
     return token
 
 
-def guarded(scope: str, limiter: RateLimiter, auditor: Auditor) -> Callable[[Callable[P, R]], Callable[P, R]]:
+def guarded(scope: str, limiter: Limiter, auditor: Auditor) -> Callable[[Callable[P, R]], Callable[P, R]]:
     def wrap(fn: Callable[P, R]) -> Callable[P, R]:
         sig = inspect.signature(fn)
         writes = scope.endswith(":write")
