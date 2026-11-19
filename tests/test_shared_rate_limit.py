@@ -48,7 +48,10 @@ class Down:
         return run
 
 
-def test_an_unreachable_store_falls_back_to_this_replica(caplog: pytest.LogCaptureFixture) -> None:
+def test_an_unreachable_store_falls_back_to_this_replica(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("mcp_server.security.time.monotonic", lambda: 5.0)  # a machine booted 5 s ago
     limiter = SharedRateLimiter("redis://unused", 60, 2, prefix="p", client=Down())
     with caplog.at_level("WARNING"):
         assert [limiter.allow("c") for _ in range(3)] == [True, True, False]  # limited, never unlimited

@@ -179,14 +179,14 @@ class SharedRateLimiter:
         self.client = client or redis.Redis.from_url(url, socket_timeout=0.25, socket_connect_timeout=0.25)
         self.script = self.client.register_script(_BUCKET)
         self.fallback = fallback or RateLimiter(per_minute, burst)
-        self.warned_at = 0.0
+        self.warned_at: float | None = None  # not 0.0: monotonic time counts from boot, maybe < 60 s ago
 
     def allow(self, key: str) -> bool:
         digest = hashlib.sha256(key.encode()).hexdigest()[:32]  # no caller ids in the store's keys
         try:
             return bool(self.script(keys=[f"{self.prefix}:{digest}"], args=[self.rate_ms, self.burst]))
         except Exception as exc:  # noqa: BLE001 - the store down or slow: limit here instead
-            if time.monotonic() - self.warned_at > 60:
+            if self.warned_at is None or time.monotonic() - self.warned_at > 60:
                 self.warned_at = time.monotonic()
                 log.warning("rate limit store unreachable (%s): limiting per replica", type(exc).__name__)
             return self.fallback.allow(key)
