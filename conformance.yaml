@@ -20,5 +20,5 @@ steps:
     json: {jsonrpc: "2.0", id: 1, method: tools/call,
            params: {name: find_patient, arguments: {name: "Ana Lopez", date_of_birth: "1984-03-02"}}}
     contains: ['"found"']
-# No flag yet: the example tools evaluate none (a feature adds its own, flags.enabled).
-checks: [audit, tracing, events]
+# find_patient reads the example feature's flag (server.example_flag) through OFREP.
+checks: [audit, tracing, events, flags]

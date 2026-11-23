@@ -21,7 +21,12 @@ def test_tools_declare_what_they_do(live: Live) -> None:
 def test_find_patient_returns_only_what_is_needed(live: Live) -> None:
     res = live.call("reader", "find_patient", {"name": "ana lopez", "date_of_birth": "1984-03-02"})
     assert not res.is_error
-    assert res.structured_content == {"found": True, "patient_id": "p-102", "display_name": "Ana Lopez"}
+    assert res.structured_content == {
+        "found": True,
+        "patient_id": "p-102",
+        "display_name": "Ana Lopez",
+        "open_tasks": None,  # the example feature's flag is off
+    }
     text = json.dumps(res.structured_content)
     assert "MRN" not in text and "555-0142" not in text
     miss = live.call("reader", "find_patient", {"name": "Sam Reed", "date_of_birth": "1990-07-11"})
@@ -163,3 +168,24 @@ def test_callers_see_only_their_tenants_records(live: Live) -> None:
 def test_a_token_without_an_organization_sees_nothing(live: Live) -> None:
     res = live.call("no-org", "find_patient", {"name": "Ana Lopez", "date_of_birth": "1984-03-02"})
     assert res.is_error and "names no organization" in res.content[0].text
+
+
+def test_the_example_feature_is_behind_its_flag(live: Live) -> None:
+    """The pattern every feature follows: its new behaviour reads its flag, and off is today's."""
+    from openfeature.provider.in_memory_provider import InMemoryFlag, InMemoryProvider
+
+    from mcp_server import flags
+    from mcp_server.server import example_flag
+    from mcp_server.settings import Settings
+
+    key = example_flag(Settings(product="emr"))
+    assert key == "emr.example.open-task-count"
+    assert example_flag(Settings()) == "example.example.open-task-count"
+    flags.use_provider(
+        InMemoryProvider({"example.example.open-task-count": InMemoryFlag("on", {"on": True, "off": False})})
+    )
+    try:
+        res = live.call("reader", "find_patient", {"name": "ana lopez", "date_of_birth": "1984-03-02"})
+        assert isinstance(res.structured_content["open_tasks"], int)
+    finally:
+        flags.use_provider(InMemoryProvider({}))

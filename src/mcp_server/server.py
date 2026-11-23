@@ -20,6 +20,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from . import flags
 from .audit import Auditor, make_sink
 from .security import caller, guarded, make_limiter, tenants
 from .settings import Settings
@@ -44,6 +45,15 @@ class PatientMatch(BaseModel):
     found: bool
     patient_id: str | None = None
     display_name: str | None = None
+    # The template's example feature, behind its flag (example_flag below): off, it stays empty.
+    open_tasks: int | None = None
+
+
+def example_flag(settings: Settings) -> str:
+    """The example feature's flag. It shows the pattern every feature follows: the tool gives the
+    feature a flag in the product's Flipt (on in dev and staging, off in production until it's
+    released) and the new behaviour reads it. Replace it with your first feature's own."""
+    return f"{settings.product or 'example'}.example.open-task-count"
 
 
 class TaskOut(BaseModel):
@@ -125,11 +135,12 @@ def build_server(
     ) -> PatientMatch:
         """Find a patient by full name and date of birth. Returns the patient id to use with other tools."""
         p = store.find_patient(name, date_of_birth, mine())
-        return (
-            PatientMatch(found=False)
-            if p is None
-            else PatientMatch(found=True, patient_id=p.patient_id, display_name=p.name)
-        )
+        if p is None:
+            return PatientMatch(found=False)
+        match = PatientMatch(found=True, patient_id=p.patient_id, display_name=p.name)
+        if flags.enabled(example_flag(settings), user=who()):  # the new behaviour; off, today's
+            match.open_tasks = len(store.open_tasks(p.patient_id, mine()))
+        return match
 
     @server.tool(annotations=READ)
     @read
