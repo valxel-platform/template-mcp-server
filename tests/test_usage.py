@@ -21,7 +21,7 @@ def fresh() -> None:
 
 
 def metrics(live: Live) -> str:
-    return httpx.get(live.url.removesuffix("/mcp") + "/metrics").text
+    return usage.metrics_body()[0].decode()  # what the management port serves (management.py)
 
 
 def sample(text: str, name: str, **labels: str) -> float:
@@ -112,9 +112,12 @@ def test_client_info_from_either_protocol() -> None:
     assert usage.client_info(b"[1, 2]") == ("", "", "", "")
 
 
-def test_metrics_and_health_are_not_traced_and_need_no_token(live: Live) -> None:
-    r = httpx.get(live.url.removesuffix("/mcp") + "/metrics")
-    assert r.status_code == 200 and "mcp_tool_calls" in r.text and "traceresponse" not in r.headers
+def test_metrics_are_off_the_api_port_and_health_is_not_traced(live: Live) -> None:
+    base = live.url.removesuffix("/mcp")
+    assert httpx.get(base + "/metrics").status_code == 404  # on the management port (8081) only
+    r = httpx.get(base + "/healthz")
+    assert r.status_code == 200 and "traceresponse" not in r.headers
+    assert "mcp_tool_calls" in usage.metrics_body()[0].decode()
 
 
 def test_names_are_cleaned_and_bounded() -> None:
