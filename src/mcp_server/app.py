@@ -9,7 +9,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import cohorts, errors, events, flags, management, telemetry, usage
+from . import cohorts, errors, events, flags, http_metrics, management, telemetry, usage
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -52,7 +52,12 @@ def create_app(
     events.start_reporting()
     # Which app is calling (User-Agent), and the client each session's initialize names (usage.py).
     return OpenTelemetryMiddleware(
-        errors.TraceResponseMiddleware(cohorts.CohortMiddleware(usage.UsageMiddleware(app))),
+        # Requests, errors and latency per route, on the management port (http_metrics.py).
+        errors.TraceResponseMiddleware(
+            cohorts.CohortMiddleware(
+                usage.UsageMiddleware(http_metrics.HttpMetrics(app, registry=usage.registry))
+            )
+        ),
         excluded_urls="healthz,metrics",
     )
 
