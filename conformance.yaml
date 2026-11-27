@@ -2,6 +2,8 @@
 # image does what every MCP server repo must. A tool is called with a token like an agent's.
 image: "ci"  # the tag CI builds
 command: "uv run mcp-server"  # conformance.py local: the app as a process
+# /metrics is on the management port (MANAGEMENT_PORT, 8081), apart from the API.
+metrics: http://127.0.0.1:8081/metrics
 port: 8080
 audience: http://127.0.0.1:8080/mcp
 env:

@@ -1,4 +1,5 @@
-"""Serves the MCP server over Streamable HTTP at /mcp, with /healthz and /metrics for the platform."""
+"""Serves the MCP server over Streamable HTTP at /mcp, with /healthz for the platform; /metrics is on
+the management port (management.py)."""
 
 from __future__ import annotations
 
@@ -6,9 +7,9 @@ from typing import Any
 
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
-from . import cohorts, errors, events, flags, telemetry, usage
+from . import cohorts, errors, events, flags, management, telemetry, usage
 from .security import JwtVerifier
 from .server import build_server
 from .settings import Settings
@@ -30,14 +31,9 @@ def create_app(
     async def healthz(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
 
-    # Prometheus scrapes the usage metrics (usage.py) and the product events counter (events.py)
-    # from inside the cluster; the gateway routes only /mcp to the outside.
+    # The usage metrics (usage.py) and the product events counter (events.py) are scraped on the
+    # management port (management.py, main); the gateway routes only /mcp to the outside.
     events.register(usage.registry)
-
-    @server.custom_route("/metrics", methods=["GET"], include_in_schema=False)  # type: ignore[untyped-decorator]
-    async def metrics(request: Request) -> Response:
-        body, content_type = usage.metrics_body()
-        return Response(body, media_type=content_type)
 
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=bool(settings.allowed_hosts), allowed_hosts=settings.allowed_hosts
@@ -68,4 +64,8 @@ def main() -> None:
     telemetry.setup_logging(settings.name)
     # log_config=None: uvicorn's own and access logs go through the JSON logging set up above,
     # like everything else (trace ids included), instead of uvicorn's plain-text format.
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)
+    app = create_app(settings)
+    # /metrics on the management port (MANAGEMENT_PORT, 8081), apart from the API, as in the Java
+    # templates: the mesh lets the data plane's metrics collector reach that port only.
+    management.serve(usage.metrics_body, host=settings.host)
+    uvicorn.run(app, host=settings.host, port=settings.port, log_config=None)

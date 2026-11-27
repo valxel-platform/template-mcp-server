@@ -34,6 +34,13 @@ The server is an OAuth 2.0 resource server (MCP authorization spec):
   so MCP clients can discover the IdP. Tokens without the read scope get 403.
 - Agents use client credentials; people's apps use authorization code with PKCE.
 
+## Ports
+
+The API is on 8080, with `/healthz` and `/readyz` for Kubernetes' probes. `/metrics` is on the
+management port, `MANAGEMENT_PORT` (8081), as Spring's actuator is in the Java templates. The
+platform's metrics collector scrapes it there, and the product's mesh lets the collector reach that
+port and no other. The API port serves no metrics.
+
 ## Run it
 
 ```
